@@ -70,12 +70,14 @@ void DataInStream(char infname[], chanend c_out)
 // Currently the function just inverts the image
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButtons)
+void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButtons, chanend toTimer)
 {
   uchar val;
+  int acc = 0;
   int button = 0;
   int iterations = 0;
   int grid[IMWD][IMHT];
+  int living = 0;
 
   //Starting up and wait for tilting of the xCore-200 Explorer
   printf( "ProcessImage:Start, size = %dx%d\n", IMHT, IMWD );
@@ -101,11 +103,13 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
   }
   leds <: 0;
   printf( "\nFinished Reading File...\n" );
+  toTimer <: 1;
   while(1)
   {
   select {
       case fromButtons :> button: // Check if button is pressed
           if(button == 13) {
+              c_out <: 1;
               leds <: 2;
               for( int y = 0; y < IMHT; y++ ) {   //go through all lines
                   for( int x = 0; x < IMWD; x++ ) { //go through each pixel per line
@@ -116,12 +120,34 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
               leds <: 0;
           }
           break;
+      case fromAcc :> acc:
+          printf("Paused..\n");
+          leds <: 8;
+          living = 0;
+          for (int y = 0; y < IMHT; y++) {
+              for (int x = 0; x < IMWD; x++) {
+                  val = grid[x][y];
+                  if (val == 255) living++;
+              }
+          }
+          toTimer <: 1;
+          int time = 0;
+          toTimer :> time;
+          printf("Rounds completed: %d\n", iterations);
+          printf("Live cells: %d\n", living);
+          printf("Time elapsed: %d\n", time);
+          fromAcc :> acc;
+          printf("Unpaused..\n");
+          toTimer <: 0;
+          leds <: 0;
+          break;
       default:
           iterations++;
           //Do work here..
+
           leds <: (iterations % 2);
           break;
-  }
+      }
   }
 }
 
@@ -135,25 +161,33 @@ void DataOutStream(char outfname[], chanend c_in)
   int res;
   uchar line[ IMWD ];
 
-  //Open PGM file
-  printf( "DataOutStream:Start...\n" );
-  res = _openoutpgm( outfname, IMWD, IMHT );
-  if( res ) {
-    printf( "DataOutStream:Error opening %s\n.", outfname );
-    return;
-  }
+  while(1)
+  {
+  int start;
+  c_in :> start;
+  if(start == 1)
+  {
+      //Open PGM file
+      printf( "DataOutStream:Start...\n" );
+      res = _openoutpgm( outfname, IMWD, IMHT );
+      if( res ) {
+          printf( "DataOutStream:Error opening %s\n.", outfname );
+          return;
+      }
 
-  //Compile each line of the image and write the image line-by-line
-  for( int y = 0; y < IMHT; y++ ) {
-    for( int x = 0; x < IMWD; x++ ) {
-      c_in :> line[ x ];
-    }
-    _writeoutline( line, IMWD );
-  }
+      //Compile each line of the image and write the image line-by-line
+      for( int y = 0; y < IMHT; y++ ) {
+          for( int x = 0; x < IMWD; x++ ) {
+              c_in :> line[ x ];
+            }
+            _writeoutline( line, IMWD );
+          }
 
-  //Close the PGM image
-  _closeoutpgm();
-  printf( "DataOutStream:Done...\n" );
+          //Close the PGM image
+          _closeoutpgm();
+          printf( "DataOutStream:Done...\n" );
+      }
+  }
   return;
 }
 
@@ -196,6 +230,12 @@ void accelerometer(client interface i2c_master_if i2c, chanend toDist) {
         tilted = 1 - tilted;
         toDist <: 1;
       }
+    } else {
+        if (x<5)
+        {
+            tilted = 1 - tilted;
+            toDist <: 0;
+        }
     }
   }
 }
@@ -211,6 +251,34 @@ void buttonListener(in port b, chanend toDist) {
   }
 }
 
+void runningTimer(chanend toDist) {
+    timer t;
+    unsigned int time;
+    const unsigned int period = 100000000;
+    t :> time;
+    int secsElapsed = 0;
+    toDist :> int func;
+    while (1)
+    {
+        select {
+            case t when timerafter (time) :> void:
+                secsElapsed++;
+                time+=period;
+                break;
+            case toDist :> int func:
+                //int pausedSecs = secsElapsed;
+                if(func == 1)
+                {
+                   toDist <: secsElapsed;
+                }
+                toDist :> func;
+                t :> time;
+                //secsElapsed = pausedSecs;
+                break;
+        }
+    }
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////
 //
 // Orchestrate concurrent system and start up all threads
@@ -222,15 +290,16 @@ int main(void) {
 
   char infname[] = "test.pgm";     //put your input image path here
   char outfname[] = "testout.pgm"; //put your output image path here
-  chan c_inIO, c_outIO, c_control, buttonToDist;    //extend your channel definitions here
+  chan c_inIO, c_outIO, c_control, buttonToDist, timerToDist;    //extend your channel definitions here
 
   par {
+    runningTimer(timerToDist);
     buttonListener(buttons, buttonToDist);  //thread to check for button presses
     i2c_master(i2c, 1, p_scl, p_sda, 10);   //server thread providing accelerometer data
-    accelerometer(i2c[0],c_control);        //client thread reading accelerometer data
+    accelerometer(i2c[0],c_control);        //client thread readitng accelerometer data
     DataInStream(infname, c_inIO);          //thread to read in a PGM image
     DataOutStream(outfname, c_outIO);       //thread to write out a PGM image
-    distributor(c_inIO, c_outIO, c_control, buttonToDist);//thread to coordinate work on image
+    distributor(c_inIO, c_outIO, c_control, buttonToDist, timerToDist);//thread to coordinate work on image
   }
 
   return 0;
