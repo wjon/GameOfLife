@@ -63,6 +63,30 @@ void DataInStream(char infname[], chanend c_out)
   return;
 }
 
+int livingNeighbours(int grid[IMWD][IMHT], int x, int y)
+{
+    int total = 0;
+    int val;
+    val = grid[(((x-1)+IMWD)%IMWD)][(((y-1)+IMHT)%IMHT)];
+    if (val == 255) total++;
+    val = grid[(((x-1)+IMWD)%IMWD)][y];
+    if (val == 255) total++;
+    val = grid[x][(((y-1)+IMHT)%IMHT)];
+    if (val == 255) total++;
+    val = grid[(((x-1)+IMWD)%IMWD)][((y+1)%IMHT)];
+    if (val == 255) total++;
+    val = grid[((x+1)%IMWD)][(((y-1)+IMHT)%IMHT)];
+    if (val == 255) total++;
+    val = grid[((x+1)%IMWD)][y];
+    if (val == 255) total++;
+    val = grid[((x+1)%IMWD)][((y+1)%IMHT)];
+    if (val == 255) total++;
+    val = grid[x][((y+1)%IMHT)];
+    if (val == 255) total++;
+
+    return total;
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////
 //
 // Start your implementation by changing this function to implement the game of life
@@ -77,6 +101,7 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
   int button = 0;
   int iterations = 0;
   int grid[IMWD][IMHT];
+  int newGrid[IMWD][IMHT];
   int living = 0;
 
   //Starting up and wait for tilting of the xCore-200 Explorer
@@ -144,12 +169,45 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
       default:
           iterations++;
           //Do work here..
-
+          printf("Start iteration %d\n", iterations);
+          for(int y = 0; y < IMHT; y++)
+          {
+              for (int x = 0; x < IMWD; x++)
+              {
+                  val = grid[x][y];
+                  if(val == 0)
+                  {
+                      if(livingNeighbours(grid, x, y) == 3)
+                      {
+                          newGrid[x][y] = 255;
+                      } else {
+                          newGrid[x][y] = 0;
+                      }
+                  } else {
+                      int lNeighbours = livingNeighbours(grid, x, y);
+                      if(lNeighbours < 2 || lNeighbours > 3)
+                      {
+                          newGrid[x][y] = 0;
+                      } else {
+                          newGrid[x][y] = 255;
+                      }
+                  }
+              }
+          }
+          for(int y = 0; y < IMHT; y++)
+          {
+              for (int x = 0; x < IMWD; x++)
+              {
+                  grid[x][y] = newGrid[x][y];
+              }
+          }
           leds <: (iterations % 2);
           break;
       }
   }
 }
+
+
 
 /////////////////////////////////////////////////////////////////////////////////////////
 //
