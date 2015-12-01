@@ -7,15 +7,15 @@
 #include "pgmIO.h"
 #include "i2c.h"
 
-#define  IMHT 128                  //image height
+#define  IMHT 128                 //image height
 #define  IMWD 128                  //image width
 
 #define  SEGMENT_SIZE (IMHT)
 
 typedef unsigned char uchar;      //using uchar as shorthand
 
-port p_scl = XS1_PORT_1E;         //interface ports to accelerometer
-port p_sda = XS1_PORT_1F;
+on tile[0] : port p_scl = XS1_PORT_1E;         //interface ports to accelerometer
+on tile[0] : port p_sda = XS1_PORT_1F;
 
 on tile[0] : in port buttons = XS1_PORT_4E; //port to access xCore-200 buttons
 on tile[0] : out port leds = XS1_PORT_4F;   //port to access xCore-200 LEDs
@@ -36,8 +36,9 @@ on tile[0] : out port leds = XS1_PORT_4F;   //port to access xCore-200 LEDs
 // Read Image from PGM file from path infname[] to channel c_out
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-void DataInStream(char infname[], chanend c_out)
+void DataInStream(chanend c_out)
 {
+  char infname[] = "128x128.pgm";     //put your input image path here
   int res;
   uchar line[ IMWD ];
   printf( "DataInStream: Start...\n" );
@@ -65,25 +66,25 @@ void DataInStream(char infname[], chanend c_out)
   return;
 }
 
-int livingNeighbours(unsigned int grid[SEGMENT_SIZE+2][SEGMENT_SIZE+2], int x, int y)
+int livingNeighbours(unsigned int grid[(SEGMENT_SIZE/2)+2][SEGMENT_SIZE+2], int x, int y)
 {
     int total = 0;
     int val;
-    val = grid[(((x-1)+IMWD)%IMWD)][(((y-1)+IMHT)%IMHT)];
+    val = grid[(x-1)][(y-1)];
     if (val == 255) total++;
-    val = grid[(((x-1)+IMWD)%IMWD)][y];
+    val = grid[(x-1)][y];
     if (val == 255) total++;
-    val = grid[x][(((y-1)+IMHT)%IMHT)];
+    val = grid[x][(y-1)];
     if (val == 255) total++;
-    val = grid[(((x-1)+IMWD)%IMWD)][((y+1)%IMHT)];
+    val = grid[(x-1)][(y+1)];
     if (val == 255) total++;
-    val = grid[((x+1)%IMWD)][(((y-1)+IMHT)%IMHT)];
+    val = grid[(x+1)][(y-1)];
     if (val == 255) total++;
-    val = grid[((x+1)%IMWD)][y];
+    val = grid[(x+1)][y];
     if (val == 255) total++;
-    val = grid[((x+1)%IMWD)][((y+1)%IMHT)];
+    val = grid[(x+1)][((y+1))];
     if (val == 255) total++;
-    val = grid[x][((y+1)%IMHT)];
+    val = grid[x][(y+1)];
     if (val == 255) total++;
 
     return total;
@@ -96,14 +97,14 @@ int livingNeighbours(unsigned int grid[SEGMENT_SIZE+2][SEGMENT_SIZE+2], int x, i
 // Currently the function just inverts the image
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButtons, chanend toTimer, chanend toWorker)
+void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButtons, chanend toTimer, chanend toWorker1, chanend toWorker2)
 {
   uchar val;
+  uchar val2;
   int acc = 0;
   int button = 0;
   int iterations = 0;
   unsigned int grid[IMWD][IMHT];
-  unsigned int newGrid[IMWD][IMHT];
   int living = 0;
 
   //Starting up and wait for tilting of the xCore-200 Explorer
@@ -129,6 +130,7 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
     }
   }
   leds <: 0;
+
   printf( "\nFinished Reading File...\n" );
   toTimer <: 1;
   while(1)
@@ -168,38 +170,50 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
           toTimer <: 0;
           leds <: 0;
           break;
-      case toWorker :> val:
-          if(val != 2)
+      case toWorker1 :> val:
+          toWorker2 :> val2;
+          if(val != 2 && val2 != 2)
           {
               iterations++;
               grid[0][0] = val;
               for(int y = 0; y < IMHT; y++)
               {
-                  for (int x = 0; x < IMWD; x++)
+                  for (int x = 0; x < IMWD/2; x++)
                   {
+
                       if(x == 0 && y == 0) x++;
-                      toWorker :> val;
+                      toWorker1 :> val;
                       grid[x][y] = val;
+                      toWorker2 :> val;
+                      grid[x+(IMWD/2)][y] = val;
                   }
               }
               leds <: (iterations % 2);
           } else {
           //Do work here..
-              printf("Start iteration %d\n", iterations);
               int ny,nx;
               for(int y = -1; y < IMHT+1; y++)
               {
-                  for (int x = -1; x < IMWD+1; x++)
+                  for (int x = -1; x < (IMWD/2)+1; x++)
                   {
+                      //Worker1
                       nx=x;
                       ny=y;
-                      //if(y == -1 && x == -1)
-                      if(y == -1) ny=IMHT-1;
-                      if(x == -1) nx=IMWD-1;
-                      if(y == IMHT) ny = 0;
-                      if(x == IMWD) nx = 0;
+                      if(ny == -1) ny=IMHT-1;
+                      if(nx == -1) nx=IMWD-1;
+                      if(ny == IMHT) ny = 0;
+                      if(nx == IMWD) nx = 0;
                       val = grid[nx][ny];
-                      toWorker <: val;
+                      toWorker1 <: val;
+                      //Worker2
+                      nx=x+(IMWD/2);
+                      ny=y;
+                      if(ny == -1) ny=IMHT-1;
+                      if(nx == -1) nx=IMWD-1;
+                      if(ny == IMHT) ny = 0;
+                      if(nx == IMWD) nx = 0;
+                      val = grid[nx][ny];
+                      toWorker2 <: val;
                   }
               }
           }
@@ -208,29 +222,29 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
   }
 }
 
-void generation(chanend fromDist)
+void worker1(chanend fromDist)
 {
-
-    int dimension = SEGMENT_SIZE+2;
-    unsigned int grid[SEGMENT_SIZE+2][SEGMENT_SIZE+2];
-    unsigned int newGrid[SEGMENT_SIZE][SEGMENT_SIZE];
+    int y_dimension = SEGMENT_SIZE+2;
+    int x_dimension = (SEGMENT_SIZE/2)+2;
+    unsigned int grid[(SEGMENT_SIZE/2)+2][SEGMENT_SIZE+2];
+    unsigned int newGrid[(SEGMENT_SIZE/2)][SEGMENT_SIZE];
     uchar val;
     while(1)
     {
         val = 2;
         fromDist <: val;
-        for(int y = 0; y < dimension; y++)
+        for(int y = 0; y < y_dimension; y++)
         {
-            for(int x = 0; x < dimension; x++)
+            for(int x = 0; x < x_dimension; x++)
             {
                 fromDist :> val;
                 grid[x][y] = val;
 
             }
         }
-        for(int y = 1; y < dimension-1; y++)
+        for(int y = 1; y < y_dimension-1; y++)
         {
-            for (int x = 1; x < dimension-1; x++)
+            for (int x = 1; x < x_dimension-1; x++)
             {
 
                 val = grid[x][y];
@@ -253,12 +267,14 @@ void generation(chanend fromDist)
                 }
             }
         }
-        for(int y = 0; y < dimension-2; y++)
+        for(int y = 0; y < y_dimension-2; y++)
             {
-                for(int x = 0; x < dimension-2; x++)
+
+                for(int x = 0; x < x_dimension-2; x++)
                 {
                     val = newGrid[x][y];
                     fromDist <: val;
+
                 }
             }
 
@@ -266,13 +282,72 @@ void generation(chanend fromDist)
 
 }
 
+void worker2(chanend fromDist)
+{   int y_dimension = SEGMENT_SIZE+2;
+    int x_dimension = (SEGMENT_SIZE/2)+2;
+    unsigned int grid[(SEGMENT_SIZE/2)+2][SEGMENT_SIZE+2];
+    unsigned int newGrid[(SEGMENT_SIZE/2)][SEGMENT_SIZE];
+    uchar val;
+    while(1)
+    {
+        val = 2;
+        fromDist <: val;
+        for(int y = 0; y < y_dimension; y++)
+        {
+            for(int x = 0; x < x_dimension; x++)
+            {
+                fromDist :> val;
+                grid[x][y] = val;
+
+            }
+        }
+        for(int y = 1; y < y_dimension-1; y++)
+        {
+            for (int x = 1; x < x_dimension-1; x++)
+            {
+
+                val = grid[x][y];
+                if(val == 0)
+                {
+                    if(livingNeighbours(grid, x, y) == 3)
+                    {
+                        newGrid[x-1][y-1] = 255;
+                    } else {
+                        newGrid[x-1][y-1] = 0;
+                    }
+                } else {
+                    int lNeighbours = livingNeighbours(grid, x, y);
+                    if(lNeighbours < 2 || lNeighbours > 3)
+                    {
+                        newGrid[x-1][y-1] = 0;
+                    } else {
+                        newGrid[x-1][y-1] = 255;
+                    }
+                }
+            }
+        }
+        for(int y = 0; y < y_dimension-2; y++)
+            {
+
+                for(int x = 0; x < x_dimension-2; x++)
+                {
+                    val = newGrid[x][y];
+                    fromDist <: val;
+
+                }
+            }
+
+    }
+
+}
 /////////////////////////////////////////////////////////////////////////////////////////
 //
 // Write pixel stream from channel c_in to PGM image file
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-void DataOutStream(char outfname[], chanend c_in)
+void DataOutStream(chanend c_in)
 {
+  char outfname[] = "testout.pgm";
   int res;
   uchar line[ IMWD ];
 
@@ -403,19 +478,19 @@ int main(void) {
 
   i2c_master_if i2c[1];               //interface to accelerometer
 
-  char infname[] = "128x128.pgm";     //put your input image path here
-  char outfname[] = "testout.pgm"; //put your output image path here
-  chan c_inIO, c_outIO, c_control, buttonToDist, timerToDist, distToWorker;    //extend your channel definitions here
+
+  chan c_inIO, c_outIO, c_control, buttonToDist, timerToDist, distToWorker1, distToWorker2;    //extend your channel definitions here
 
   par {
-    runningTimer(timerToDist);
-    buttonListener(buttons, buttonToDist);  //thread to check for button presses
-    i2c_master(i2c, 1, p_scl, p_sda, 10);   //server thread providing accelerometer data
-    accelerometer(i2c[0],c_control);        //client thread readitng accelerometer data
-    DataInStream(infname, c_inIO);          //thread to read in a PGM image
-    DataOutStream(outfname, c_outIO);       //thread to write out a PGM image
-    distributor(c_inIO, c_outIO, c_control, buttonToDist, timerToDist, distToWorker);//thread to coordinate work on image
-    generation(distToWorker);
+    on tile[0] : runningTimer(timerToDist);
+    on tile[0] : buttonListener(buttons, buttonToDist);  //thread to check for button presses
+    on tile[0] : i2c_master(i2c, 1, p_scl, p_sda, 10);   //server thread providing accelerometer data
+    on tile[0] : accelerometer(i2c[0],c_control);        //client thread readitng accelerometer data
+    on tile[0] : DataInStream(c_inIO);          //thread to read in a PGM image
+    on tile[0] : DataOutStream(c_outIO);       //thread to write out a PGM image
+    on tile[0] : distributor(c_inIO, c_outIO, c_control, buttonToDist, timerToDist, distToWorker1, distToWorker2);//thread to coordinate work on image
+    on tile[0] : worker1(distToWorker1);
+    on tile[1] : worker2(distToWorker2);
   }
 
   return 0;
