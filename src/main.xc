@@ -8,7 +8,8 @@
 #include "i2c.h"
 
 #define  IMHT 128                //image height
-#define  IMWD 128                  //image width
+#define  IMWD 128               //image width
+#define  BITWD IMWD/8           //width in bytes
 
 #define  SEGMENT_SIZE (IMHT)
 
@@ -66,7 +67,7 @@ void DataInStream(chanend c_out)
   return;
 }
 
-int livingNeighbours(unsigned int grid[((IMWD/8)/2)+2][SEGMENT_SIZE+2], int x, int y, int a)
+int livingNeighbours(unsigned int grid[(BITWD/4)+2][(IMHT/2)+2], int x, int y, int a)
 {
     int total = 0;
     int val;
@@ -159,15 +160,21 @@ int livingNeighbours(unsigned int grid[((IMWD/8)/2)+2][SEGMENT_SIZE+2], int x, i
 // Currently the function just inverts the image
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButtons, chanend toTimer, chanend toWorker1, chanend toWorker2)
+void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButtons, chanend toTimer, chanend toWorker1, chanend toWorker2, chanend toWorker3, chanend toWorker4, chanend toWorker5, chanend toWorker6, chanend toWorker7, chanend toWorker8)
 {
   uchar val;
   int signal1;
   int signal2;
+  int signal3;
+  int signal4;
+  int signal5;
+  int signal6;
+  int signal7;
+  int signal8;
   int acc = 0;
   int button = 0;
   int iterations = 0;
-  unsigned int grid[IMWD/8][IMHT];
+  unsigned int grid[BITWD][IMHT];
   int living = 0;
 
   //Starting up and wait for tilting of the xCore-200 Explorer
@@ -186,7 +193,7 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
   //change the image according to the "Game of Life"
   printf( "Processing...\n" );
   for( int y = 0; y < IMHT; y++ ) {   //go through all lines
-    for( int x = 0; x < IMWD/8; x++ ) { //go through each pixel per line
+    for( int x = 0; x < BITWD; x++ ) { //go through each pixel per line
       int a = 0;
       uchar line = 0;
       while(a != 8){
@@ -215,7 +222,7 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
               c_out <: 1;
               leds <: 2;
               for( int y = 0; y < IMHT; y++ ) {   //go through all lines
-                  for( int x = 0; x < IMWD/8; x++ ) { //go through each pixel per line
+                  for( int x = 0; x < BITWD; x++ ) { //go through each pixel per line
                       val = grid[x][y];
                       //printf("%d\n",val);
                       int a = 0;
@@ -241,7 +248,7 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
           leds <: 8;
           living = 0;
           for (int y = 0; y < IMHT; y++) {
-              for (int x = 0; x < IMWD/8; x++) {
+              for (int x = 0; x < BITWD; x++) {
                   val = grid[x][y];
                   int a = 0;
                   while(a != 8){
@@ -268,47 +275,126 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
           break;
       case toWorker1 :> signal1:
           toWorker2 :> signal2;
-          if(signal1 == -1 && signal2 == -1)
+          toWorker3 :> signal3;
+          toWorker4 :> signal4;
+          toWorker5 :> signal5;
+          toWorker6 :> signal6;
+          toWorker7 :> signal7;
+          toWorker8 :> signal8;
+          if(signal1 == -1 && signal2 == -1 && signal3 == -1 && signal4 == -1)
           {
               iterations++;
-              for(int y = 0; y < IMHT; y++)
+              for(int y = 0; y < IMHT/2; y++)
               {
-                  for (int x = 0; x < (IMWD/8)/2; x++)
+                  for (int x = 0; x < BITWD/4; x++)
                   {
                       toWorker1 :> val;
                       grid[x][y] = val;
                       toWorker2 :> val;
-                      grid[x+((IMWD/8)/2)][y] = val;
+                      grid[x+(BITWD/4)][y] = val;
+                      toWorker3 :> val;
+                      grid[x+(BITWD/2)][y] = val;
+                      toWorker4 :> val;
+                      grid[x+((3*BITWD)/4)][y] = val;
+
+                      toWorker5 :> val;
+                      grid[x][y+(IMHT/2)] = val;
+                      toWorker6 :> val;
+                      grid[x+(BITWD/4)][y+(IMHT/2)] = val;
+                      toWorker7 :> val;
+                      grid[x+(BITWD/2)][y+(IMHT/2)] = val;
+                      toWorker8 :> val;
+                      grid[x+((3*BITWD)/4)][y+(IMHT/2)] = val;
 
                   }
               }
               leds <: (iterations % 2);
-          } else if(signal1 == -2 && signal2 == -2) {
+          } else if(signal1 == -2 && signal2 == -2 && signal3 == -2 && signal4 == -2) {
           //Do work here..
               int ny,nx;
-              for(int y = -1; y < IMHT+1; y++)
+              for(int y = -1; y < (IMHT/2)+1; y++)
               {
-                  for (int x = -1; x < ((IMWD/8)/2)+1; x++)
+                  for (int x = -1; x < (BITWD/4)+1; x++)
                   {
                       //Worker1
                       nx=x;
                       ny=y;
                       if(ny == -1) ny=IMHT-1;
-                      if(nx == -1){nx=(IMWD/8)-1;}
+                      if(nx == -1){nx=BITWD-1;}
                       if(ny == IMHT) ny = 0;
-                      if(nx == (IMWD/8)) nx = 0;
+                      if(nx == BITWD) nx = 0;
                       val = grid[nx][ny];
                       toWorker1 <: val;
 
                       //Worker2
-                      nx=x+((IMWD/8)/2);
+                      nx=x+(BITWD/4);
                       ny=y;
                       if(ny == -1) ny=IMHT-1;
-                      if(nx == -1) nx=(IMWD/8)-1;
+                      if(nx == -1) nx=BITWD-1;
                       if(ny == IMHT) ny = 0;
-                      if(nx == (IMWD/8)) nx = 0;
+                      if(nx == BITWD) nx = 0;
                       val = grid[nx][ny];
                       toWorker2 <: val;
+
+                      //Worker3
+                      nx=x+(BITWD/2);
+                      ny=y;
+                      if(ny == -1) ny=IMHT-1;
+                      if(nx == -1) nx=BITWD-1;
+                      if(ny == IMHT) ny = 0;
+                      if(nx == BITWD) nx = 0;
+                      val = grid[nx][ny];
+                      toWorker3 <: val;
+
+                      //Worker4
+                      nx=x+((3*BITWD)/4);
+                      ny=y;
+                      if(ny == -1) ny=IMHT-1;
+                      if(nx == -1) nx=BITWD-1;
+                      if(ny == IMHT) ny = 0;
+                      if(nx == BITWD) nx = 0;
+                      val = grid[nx][ny];
+                      toWorker4 <: val;
+
+                      //Worker5
+                      nx=x;
+                      ny=y+(IMHT/2);
+                      if(ny == -1) ny=IMHT-1;
+                      if(nx == -1){nx=BITWD-1;}
+                      if(ny == IMHT) ny = 0;
+                      if(nx == BITWD) nx = 0;
+                      val = grid[nx][ny];
+                      toWorker5 <: val;
+
+                      //Worker6
+                      nx=x+(BITWD/4);
+                      ny=y+(IMHT/2);
+                      if(ny == -1) ny=IMHT-1;
+                      if(nx == -1) nx=BITWD-1;
+                      if(ny == IMHT) ny = 0;
+                      if(nx == BITWD) nx = 0;
+                      val = grid[nx][ny];
+                      toWorker6 <: val;
+
+                      //Worker7
+                      nx=x+(BITWD/2);
+                      ny=y+(IMHT/2);
+                      if(ny == -1) ny=IMHT-1;
+                      if(nx == -1) nx=BITWD-1;
+                      if(ny == IMHT) ny = 0;
+                      if(nx == BITWD) nx = 0;
+                      val = grid[nx][ny];
+                      toWorker7 <: val;
+
+                      //Worker8
+                      nx=x+((3*BITWD)/4);
+                      ny=y+(IMHT/2);
+                      if(ny == -1) ny=IMHT-1;
+                      if(nx == -1) nx=BITWD-1;
+                      if(ny == IMHT) ny = 0;
+                      if(nx == BITWD) nx = 0;
+                      val = grid[nx][ny];
+                      toWorker8 <: val;
                   }
               }
           }
@@ -317,12 +403,12 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
   }
 }
 
-void worker1(chanend fromDist)
+void worker(chanend fromDist)
 {
-    int y_dimension = SEGMENT_SIZE+2;
-    int x_dimension = ((IMWD/8)/2)+2;
-    unsigned int grid[((IMWD/8)/2)+2][SEGMENT_SIZE+2];
-    unsigned int newGrid[((IMWD/8)/2)][SEGMENT_SIZE];
+    int y_dimension = (IMHT/2)+2;
+    int x_dimension = (BITWD/4)+2;
+    unsigned int grid[(BITWD/4)+2][(IMHT/2)+2];
+    unsigned int newGrid[(BITWD/4)][(IMHT/2)];
     uchar val;
     while(1)
     {
@@ -386,75 +472,7 @@ void worker1(chanend fromDist)
 
 }
 
-void worker2(chanend fromDist)
-{
-    int y_dimension = SEGMENT_SIZE+2;
-    int x_dimension = ((IMWD/8)/2)+2;
-    unsigned int grid[((IMWD/8)/2)+2][SEGMENT_SIZE+2];
-    unsigned int newGrid[((IMWD/8)/2)][SEGMENT_SIZE];
-    uchar val;
-    while(1)
-    {
-        int signal = -2;
-        fromDist <: signal;
-        for(int y = 0; y < y_dimension; y++)
-        {
-            for(int x = 0; x < x_dimension; x++)
-            {
-                fromDist :> val;
-                grid[x][y] = val;
-                //printf("%d\n", val);
 
-            }
-        }
-        for(int y = 1; y < y_dimension-1; y++)
-        {
-            for (int x = 1; x < x_dimension-1; x++)
-            {
-                val = grid[x][y];
-                int a = 0;
-                uchar line = 0;
-                    while(a != 8){
-                        int bit = (val >> (7-a)) & 1;
-                        //printf("%d,%d, %d\n",x,y,val);
-                        int lNeighbours = livingNeighbours(grid, x, y, a);
-                        if(bit == 0){
-                            //printf("%d,%d, %d\n",a,y, lNeighbours);
-                            if(lNeighbours == 3)
-                            {
-                                line |= 1 << (7-a);
-                                //printf("%d", line);
-                            }
-                            //printf("%d, %d\n",a,line);
-                        }
-                        else {
-                            if(lNeighbours == 2 || lNeighbours == 3)
-                            {
-                                line |= 1 << (7-a);
-                                //printf("%d", line);
-                            }
-                        }
-                        a++;
-                     }
-                    newGrid[x-1][y-1] = line;
-                    //printf("%d, %d, %d\n",x-1,y-1, line);
-            }
-        }
-        signal = -1;
-        fromDist <: signal;
-        for(int y = 0; y < y_dimension-2; y++)
-            {
-
-                for(int x = 0; x < x_dimension-2; x++)
-                {
-                    val = newGrid[x][y];
-                    fromDist <: val;
-
-                }
-            }
-    }
-
-}
 /////////////////////////////////////////////////////////////////////////////////////////
 //
 // Write pixel stream from channel c_in to PGM image file
@@ -594,7 +612,7 @@ int main(void) {
   i2c_master_if i2c[1];               //interface to accelerometer
 
 
-  chan c_inIO, c_outIO, c_control, buttonToDist, timerToDist, distToWorker1, distToWorker2;    //extend your channel definitions here
+  chan c_inIO, c_outIO, c_control, buttonToDist, timerToDist, distToWorker1, distToWorker2, distToWorker3, distToWorker4, distToWorker5, distToWorker6, distToWorker7, distToWorker8;    //extend your channel definitions here
 
   par {
     on tile[0] : runningTimer(timerToDist);
@@ -603,9 +621,15 @@ int main(void) {
     on tile[0] : accelerometer(i2c[0],c_control);        //client thread readitng accelerometer data
     on tile[0] : DataInStream(c_inIO);          //thread to read in a PGM image
     on tile[0] : DataOutStream(c_outIO);       //thread to write out a PGM image
-    on tile[0] : distributor(c_inIO, c_outIO, c_control, buttonToDist, timerToDist, distToWorker1, distToWorker2);//thread to coordinate work on image
-    on tile[1] : worker1(distToWorker1);
-    on tile[1] : worker2(distToWorker2);
+    on tile[0] : distributor(c_inIO, c_outIO, c_control, buttonToDist, timerToDist, distToWorker1, distToWorker2, distToWorker3, distToWorker4, distToWorker5, distToWorker6, distToWorker7, distToWorker8);//thread to coordinate work on image
+    on tile[0] : worker(distToWorker1);
+    on tile[0] : worker(distToWorker2);
+    on tile[1] : worker(distToWorker3);
+    on tile[1] : worker(distToWorker4);
+    on tile[1] : worker(distToWorker5);
+    on tile[1] : worker(distToWorker6);
+    on tile[1] : worker(distToWorker7);
+    on tile[1] : worker(distToWorker8);
   }
 
   return 0;
