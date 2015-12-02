@@ -11,8 +11,6 @@
 #define  IMWD 128               //image width
 #define  BITWD IMWD/8           //width in bytes
 
-#define  SEGMENT_SIZE (IMHT)
-
 typedef unsigned char uchar;      //using uchar as shorthand
 
 on tile[0] : port p_scl = XS1_PORT_1E;         //interface ports to accelerometer
