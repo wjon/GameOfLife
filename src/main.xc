@@ -7,7 +7,7 @@
 #include "pgmIO.h"
 #include "i2c.h"
 
-#define  IMHT 128                 //image height
+#define  IMHT 128                //image height
 #define  IMWD 128                  //image width
 
 #define  SEGMENT_SIZE (IMHT)
@@ -38,7 +38,7 @@ on tile[0] : out port leds = XS1_PORT_4F;   //port to access xCore-200 LEDs
 /////////////////////////////////////////////////////////////////////////////////////////
 void DataInStream(chanend c_out)
 {
-  char infname[] = "128x128.pgm";     //put your input image path here
+  char infname[] = "128x128.pgm";//put your input image path here
   int res;
   uchar line[ IMWD ];
   printf( "DataInStream: Start...\n" );
@@ -66,27 +66,89 @@ void DataInStream(chanend c_out)
   return;
 }
 
-int livingNeighbours(unsigned int grid[(SEGMENT_SIZE/2)+2][SEGMENT_SIZE+2], int x, int y)
+int livingNeighbours(unsigned int grid[((IMWD/8)/2)+2][SEGMENT_SIZE+2], int x, int y, int a)
 {
     int total = 0;
     int val;
-    val = grid[(x-1)][(y-1)];
-    if (val == 255) total++;
-    val = grid[(x-1)][y];
-    if (val == 255) total++;
-    val = grid[x][(y-1)];
-    if (val == 255) total++;
-    val = grid[(x-1)][(y+1)];
-    if (val == 255) total++;
-    val = grid[(x+1)][(y-1)];
-    if (val == 255) total++;
-    val = grid[(x+1)][y];
-    if (val == 255) total++;
-    val = grid[(x+1)][((y+1))];
-    if (val == 255) total++;
-    val = grid[x][(y+1)];
-    if (val == 255) total++;
+    int bit;
+    if(a ==0){
+        val = grid[(x-1)][(y-1)];
+        bit = (val >> (0)) & 1;
+        if (bit == 1) total++;
+        val = grid[(x-1)][y];
+        bit = (val >> (0)) & 1;
+        if (bit == 1) total++;
+        val = grid[(x-1)][(y+1)];
+        bit = (val >> (0)) & 1;
+        if (bit == 1) total++;
 
+
+        val = grid[(x)][(y-1)];
+        bit = (val >> (6)) & 1;
+        if (bit == 1) total++;
+        val = grid[(x)][y];
+        bit = (val >> (6)) & 1;
+        if (bit == 1) total++;
+        val = grid[(x)][((y+1))];
+        bit = (val >> (6)) & 1;
+        if (bit == 1) total++;
+
+        }
+    else if(a ==7){
+        val = grid[(x)][(y-1)];
+        bit = (val >> (1)) & 1;
+        if (bit == 1) total++;
+        val = grid[(x)][y];
+        bit = (val >> (1)) & 1;
+        if (bit == 1) total++;
+        val = grid[(x)][(y+1)];
+        bit = (val >> (1)) & 1;
+        if (bit == 1) total++;
+
+
+        val = grid[(x+1)][(y-1)];
+        bit = (val >> (7)) & 1;
+        if (bit == 1) total++;
+        val = grid[(x+1)][y];
+        bit = (val >> (7)) & 1;
+        if (bit == 1) total++;
+        val = grid[(x+1)][((y+1))];
+        bit = (val >> (7)) & 1;
+        if (bit == 1) total++;
+
+        }
+    else{
+        val = grid[(x)][(y-1)];
+        bit = (val >> ((7-a)+1)) & 1;
+        if (bit == 1) total++;
+        val = grid[(x)][y];
+        bit = (val >> ((7-a)+1)) & 1;
+        if (bit == 1) total++;
+        val = grid[(x)][(y+1)];
+        bit = (val >> ((7-a)+1)) & 1;
+        if (bit == 1) total++;
+
+
+        val = grid[(x)][(y-1)];
+        bit = (val >> ((7-a)-1)) & 1;
+        if (bit == 1) total++;
+        val = grid[(x)][y];
+        bit = (val >> ((7-a)-1)) & 1;
+        if (bit == 1) total++;
+        val = grid[(x)][((y+1))];
+        bit = (val >> ((7-a)-1)) & 1;
+        if (bit == 1) total++;
+
+        }
+
+    val = grid[x][(y+1)];
+    bit = (val >> (7-a)) & 1;
+    if (bit == 1) total++;
+    val = grid[x][(y-1)];
+    bit = (val >> (7-a)) & 1;
+    if (bit == 1) total++;
+
+    //printf("%d,%d,%d, %d\n",x,y,a, total);
     return total;
 }
 
@@ -100,11 +162,12 @@ int livingNeighbours(unsigned int grid[(SEGMENT_SIZE/2)+2][SEGMENT_SIZE+2], int 
 void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButtons, chanend toTimer, chanend toWorker1, chanend toWorker2)
 {
   uchar val;
-  uchar val2;
+  int signal1;
+  int signal2;
   int acc = 0;
   int button = 0;
   int iterations = 0;
-  unsigned int grid[IMWD][IMHT];
+  unsigned int grid[IMWD/8][IMHT];
   int living = 0;
 
   //Starting up and wait for tilting of the xCore-200 Explorer
@@ -123,12 +186,23 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
   //change the image according to the "Game of Life"
   printf( "Processing...\n" );
   for( int y = 0; y < IMHT; y++ ) {   //go through all lines
-    for( int x = 0; x < IMWD; x++ ) { //go through each pixel per line
-      c_in :> val;
-      grid[x][y] = val;                    //read the pixel value
-      //c_out <: (uchar)( val ^ 0xFF ); //send some modified pixel out
+    for( int x = 0; x < IMWD/8; x++ ) { //go through each pixel per line
+      int a = 0;
+      uchar line = 0;
+      while(a != 8){
+          c_in :> val;
+          //printf("%d,%d, %d\n",x,y,val);
+          if(val != 0){
+              line |= 1 << (7-a);
+              //printf("%d, %d\n",a,line);
+          }
+          a++;
+      }
+      grid[x][y] = line;
     }
   }
+
+
   leds <: 0;
 
   printf( "\nFinished Reading File...\n" );
@@ -141,9 +215,22 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
               c_out <: 1;
               leds <: 2;
               for( int y = 0; y < IMHT; y++ ) {   //go through all lines
-                  for( int x = 0; x < IMWD; x++ ) { //go through each pixel per line
+                  for( int x = 0; x < IMWD/8; x++ ) { //go through each pixel per line
                       val = grid[x][y];
-                      c_out <: val; //send some modified pixel out
+                      //printf("%d\n",val);
+                      int a = 0;
+                      while(a != 8){
+                          uchar colour = 0;
+                          int bit = (val >> (7-a)) & 1;
+                          //printf("%d,%d, %d\n",x,y,val);
+                          if(bit == 1){
+                              colour = 255;
+                              //printf("%d, %d\n",a,line);
+                          }
+                          c_out <: colour;
+                          a++;
+                      }
+
                   }
               }
               leds <: 0;
@@ -154,9 +241,18 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
           leds <: 8;
           living = 0;
           for (int y = 0; y < IMHT; y++) {
-              for (int x = 0; x < IMWD; x++) {
+              for (int x = 0; x < IMWD/8; x++) {
                   val = grid[x][y];
-                  if (val == 255) living++;
+                  int a = 0;
+                  while(a != 8){
+                      int bit = (val >> (7-a)) & 1;
+                      //printf("%d,%d, %d\n",x,y,val);
+                      if(bit != 0){
+                          living++;
+                          //printf("%d, %d\n",a,line);
+                      }
+                      a++;
+                  }
               }
           }
           toTimer <: 1;
@@ -170,48 +266,47 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
           toTimer <: 0;
           leds <: 0;
           break;
-      case toWorker1 :> val:
-          toWorker2 :> val2;
-          if(val != 2 && val2 != 2)
+      case toWorker1 :> signal1:
+          toWorker2 :> signal2;
+          if(signal1 == -1 && signal2 == -1)
           {
               iterations++;
-              grid[0][0] = val;
               for(int y = 0; y < IMHT; y++)
               {
-                  for (int x = 0; x < IMWD/2; x++)
+                  for (int x = 0; x < (IMWD/8)/2; x++)
                   {
-
-                      if(x == 0 && y == 0) x++;
                       toWorker1 :> val;
                       grid[x][y] = val;
                       toWorker2 :> val;
-                      grid[x+(IMWD/2)][y] = val;
+                      grid[x+((IMWD/8)/2)][y] = val;
+
                   }
               }
               leds <: (iterations % 2);
-          } else {
+          } else if(signal1 == -2 && signal2 == -2) {
           //Do work here..
               int ny,nx;
               for(int y = -1; y < IMHT+1; y++)
               {
-                  for (int x = -1; x < (IMWD/2)+1; x++)
+                  for (int x = -1; x < ((IMWD/8)/2)+1; x++)
                   {
                       //Worker1
                       nx=x;
                       ny=y;
                       if(ny == -1) ny=IMHT-1;
-                      if(nx == -1) nx=IMWD-1;
+                      if(nx == -1){nx=(IMWD/8)-1;}
                       if(ny == IMHT) ny = 0;
-                      if(nx == IMWD) nx = 0;
+                      if(nx == (IMWD/8)) nx = 0;
                       val = grid[nx][ny];
                       toWorker1 <: val;
+
                       //Worker2
-                      nx=x+(IMWD/2);
+                      nx=x+((IMWD/8)/2);
                       ny=y;
                       if(ny == -1) ny=IMHT-1;
-                      if(nx == -1) nx=IMWD-1;
+                      if(nx == -1) nx=(IMWD/8)-1;
                       if(ny == IMHT) ny = 0;
-                      if(nx == IMWD) nx = 0;
+                      if(nx == (IMWD/8)) nx = 0;
                       val = grid[nx][ny];
                       toWorker2 <: val;
                   }
@@ -225,20 +320,21 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
 void worker1(chanend fromDist)
 {
     int y_dimension = SEGMENT_SIZE+2;
-    int x_dimension = (SEGMENT_SIZE/2)+2;
-    unsigned int grid[(SEGMENT_SIZE/2)+2][SEGMENT_SIZE+2];
-    unsigned int newGrid[(SEGMENT_SIZE/2)][SEGMENT_SIZE];
+    int x_dimension = ((IMWD/8)/2)+2;
+    unsigned int grid[((IMWD/8)/2)+2][SEGMENT_SIZE+2];
+    unsigned int newGrid[((IMWD/8)/2)][SEGMENT_SIZE];
     uchar val;
     while(1)
     {
-        val = 2;
-        fromDist <: val;
+        int signal = -2;
+        fromDist <: signal;
         for(int y = 0; y < y_dimension; y++)
         {
             for(int x = 0; x < x_dimension; x++)
             {
                 fromDist :> val;
                 grid[x][y] = val;
+                //printf("%d\n", val);
 
             }
         }
@@ -246,27 +342,36 @@ void worker1(chanend fromDist)
         {
             for (int x = 1; x < x_dimension-1; x++)
             {
-
                 val = grid[x][y];
-                if(val == 0)
-                {
-                    if(livingNeighbours(grid, x, y) == 3)
-                    {
-                        newGrid[x-1][y-1] = 255;
-                    } else {
-                        newGrid[x-1][y-1] = 0;
-                    }
-                } else {
-                    int lNeighbours = livingNeighbours(grid, x, y);
-                    if(lNeighbours < 2 || lNeighbours > 3)
-                    {
-                        newGrid[x-1][y-1] = 0;
-                    } else {
-                        newGrid[x-1][y-1] = 255;
-                    }
-                }
+                int a = 0;
+                uchar line = 0;
+                    while(a != 8){
+                        int bit = (val >> (7-a)) & 1;
+                        //printf("%d,%d, %d\n",x,y,val);
+                        int lNeighbours = livingNeighbours(grid, x, y, a);
+                        if(bit == 0){
+                            //printf("%d,%d, %d\n",a,y, lNeighbours);
+                            if(lNeighbours == 3)
+                            {
+                                line |= 1 << (7-a);
+                            }
+                            //printf("%d, %d\n",a,line);
+                        }
+                        else {
+                            if(lNeighbours == 2 || lNeighbours == 3)
+                            {
+                                line |= 1 << (7-a);
+                                //printf("%d, %d\n",y, line);
+                            }
+                        }
+                        a++;
+                     }
+                    newGrid[x-1][y-1] = line;
+                    //printf("%d, %d, %d\n",x-1,y-1, line);
             }
         }
+        signal = -1;
+        fromDist <: signal;
         for(int y = 0; y < y_dimension-2; y++)
             {
 
@@ -277,27 +382,28 @@ void worker1(chanend fromDist)
 
                 }
             }
-
     }
 
 }
 
 void worker2(chanend fromDist)
-{   int y_dimension = SEGMENT_SIZE+2;
-    int x_dimension = (SEGMENT_SIZE/2)+2;
-    unsigned int grid[(SEGMENT_SIZE/2)+2][SEGMENT_SIZE+2];
-    unsigned int newGrid[(SEGMENT_SIZE/2)][SEGMENT_SIZE];
+{
+    int y_dimension = SEGMENT_SIZE+2;
+    int x_dimension = ((IMWD/8)/2)+2;
+    unsigned int grid[((IMWD/8)/2)+2][SEGMENT_SIZE+2];
+    unsigned int newGrid[((IMWD/8)/2)][SEGMENT_SIZE];
     uchar val;
     while(1)
     {
-        val = 2;
-        fromDist <: val;
+        int signal = -2;
+        fromDist <: signal;
         for(int y = 0; y < y_dimension; y++)
         {
             for(int x = 0; x < x_dimension; x++)
             {
                 fromDist :> val;
                 grid[x][y] = val;
+                //printf("%d\n", val);
 
             }
         }
@@ -305,27 +411,37 @@ void worker2(chanend fromDist)
         {
             for (int x = 1; x < x_dimension-1; x++)
             {
-
                 val = grid[x][y];
-                if(val == 0)
-                {
-                    if(livingNeighbours(grid, x, y) == 3)
-                    {
-                        newGrid[x-1][y-1] = 255;
-                    } else {
-                        newGrid[x-1][y-1] = 0;
-                    }
-                } else {
-                    int lNeighbours = livingNeighbours(grid, x, y);
-                    if(lNeighbours < 2 || lNeighbours > 3)
-                    {
-                        newGrid[x-1][y-1] = 0;
-                    } else {
-                        newGrid[x-1][y-1] = 255;
-                    }
-                }
+                int a = 0;
+                uchar line = 0;
+                    while(a != 8){
+                        int bit = (val >> (7-a)) & 1;
+                        //printf("%d,%d, %d\n",x,y,val);
+                        int lNeighbours = livingNeighbours(grid, x, y, a);
+                        if(bit == 0){
+                            //printf("%d,%d, %d\n",a,y, lNeighbours);
+                            if(lNeighbours == 3)
+                            {
+                                line |= 1 << (7-a);
+                                //printf("%d", line);
+                            }
+                            //printf("%d, %d\n",a,line);
+                        }
+                        else {
+                            if(lNeighbours == 2 || lNeighbours == 3)
+                            {
+                                line |= 1 << (7-a);
+                                //printf("%d", line);
+                            }
+                        }
+                        a++;
+                     }
+                    newGrid[x-1][y-1] = line;
+                    //printf("%d, %d, %d\n",x-1,y-1, line);
             }
         }
+        signal = -1;
+        fromDist <: signal;
         for(int y = 0; y < y_dimension-2; y++)
             {
 
@@ -336,7 +452,6 @@ void worker2(chanend fromDist)
 
                 }
             }
-
     }
 
 }
@@ -489,7 +604,7 @@ int main(void) {
     on tile[0] : DataInStream(c_inIO);          //thread to read in a PGM image
     on tile[0] : DataOutStream(c_outIO);       //thread to write out a PGM image
     on tile[0] : distributor(c_inIO, c_outIO, c_control, buttonToDist, timerToDist, distToWorker1, distToWorker2);//thread to coordinate work on image
-    on tile[0] : worker1(distToWorker1);
+    on tile[1] : worker1(distToWorker1);
     on tile[1] : worker2(distToWorker2);
   }
 
