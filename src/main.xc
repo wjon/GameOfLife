@@ -8,7 +8,7 @@
 #include "i2c.h"
 
 #define  IMHT 128                //image height
-#define  IMWD 128               //image width
+#define  IMWD 128                //image width
 #define  BITWD IMWD/8           //width in bytes
 
 typedef unsigned char uchar;      //using uchar as shorthand
@@ -29,6 +29,7 @@ on tile[0] : out port leds = XS1_PORT_4F;   //port to access xCore-200 LEDs
 #define FXOS8700EQ_OUT_Y_LSB 0x4
 #define FXOS8700EQ_OUT_Z_MSB 0x5
 #define FXOS8700EQ_OUT_Z_LSB 0x6
+//unsigned int grid[BITWD][IMHT];
 
 /////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -65,7 +66,7 @@ void DataInStream(chanend c_out)
   return;
 }
 
-int livingNeighbours(unsigned int grid[(BITWD/4)+2][(IMHT/2)+2], int x, int y, int a)
+int livingNeighbours(unsigned int grid[(BITWD/4)+2][((IMHT/2)/2)+2], int x, int y, int a)
 {
     int total = 0;
     int val;
@@ -161,6 +162,8 @@ int livingNeighbours(unsigned int grid[(BITWD/4)+2][(IMHT/2)+2], int x, int y, i
 void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButtons, chanend toTimer, chanend toWorker1, chanend toWorker2, chanend toWorker3, chanend toWorker4, chanend toWorker5, chanend toWorker6, chanend toWorker7, chanend toWorker8)
 {
   uchar val;
+  int savedTop[BITWD];
+  int savedMid[BITWD];
   int signal1;
   int signal2;
   int signal3;
@@ -174,6 +177,7 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
   int iterations = 0;
   unsigned int grid[BITWD][IMHT];
   int living = 0;
+  int writeOut = 0;
 
   //Starting up and wait for tilting of the xCore-200 Explorer
   printf( "ProcessImage:Start, size = %dx%d\n", IMHT, IMWD );
@@ -212,33 +216,40 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
 
   printf( "\nFinished Reading File...\n" );
   toTimer <: 1;
+  int split = 2;
+  int yMax;
   while(1)
   {
+      if(writeOut == 1 && split == 2)
+      {
+
+          c_out <: 1;
+          leds <: 2;
+          for( int y = 0; y < IMHT; y++ ) {   //go through all lines
+              for( int x = 0; x < BITWD; x++ ) { //go through each pixel per line
+                  val = grid[x][y];
+                  //printf("%d\n",val);
+                  int a = 0;
+                  while(a != 8){
+                      uchar colour = 0;
+                      int bit = (val >> (7-a)) & 1;
+                      //printf("%d,%d, %d\n",x,y,val);
+                      if(bit == 1){
+                          colour = 255;
+                          //printf("%d, %d\n",a,line);
+                      }
+                      c_out <: colour;
+                      a++;
+                  }
+              }
+          }
+          leds <: 0;
+          writeOut = 0;
+      }
   select {
       case fromButtons :> button: // Check if button is pressed
           if(button == 13) {
-              c_out <: 1;
-              leds <: 2;
-              for( int y = 0; y < IMHT; y++ ) {   //go through all lines
-                  for( int x = 0; x < BITWD; x++ ) { //go through each pixel per line
-                      val = grid[x][y];
-                      //printf("%d\n",val);
-                      int a = 0;
-                      while(a != 8){
-                          uchar colour = 0;
-                          int bit = (val >> (7-a)) & 1;
-                          //printf("%d,%d, %d\n",x,y,val);
-                          if(bit == 1){
-                              colour = 255;
-                              //printf("%d, %d\n",a,line);
-                          }
-                          c_out <: colour;
-                          a++;
-                      }
-
-                  }
-              }
-              leds <: 0;
+              writeOut = 1;
           }
           break;
       case fromAcc :> acc:
@@ -281,8 +292,19 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
           toWorker8 :> signal8;
           if(signal1 == -1 && signal2 == -1 && signal3 == -1 && signal4 == -1)
           {
-              iterations++;
-              for(int y = 0; y < IMHT/2; y++)
+              int y;
+              if(split == 2)
+              {
+                  y = 0;
+                  iterations++;
+                  yMax = ((IMHT/2)/2);
+              }
+              else
+              {
+                  y = ((IMHT)/2);
+                  yMax = (IMHT/2)+(IMHT/4);
+              }
+              for(y; y < yMax; y++)
               {
                   for (int x = 0; x < BITWD/4; x++)
                   {
@@ -296,21 +318,39 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
                       grid[x+((3*BITWD)/4)][y] = val;
 
                       toWorker5 :> val;
-                      grid[x][y+(IMHT/2)] = val;
+                      grid[x][y+(IMHT/4)] = val;
                       toWorker6 :> val;
-                      grid[x+(BITWD/4)][y+(IMHT/2)] = val;
+                      grid[x+(BITWD/4)][y+(IMHT/4)] = val;
                       toWorker7 :> val;
-                      grid[x+(BITWD/2)][y+(IMHT/2)] = val;
+                      grid[x+(BITWD/2)][y+(IMHT/4)] = val;
                       toWorker8 :> val;
-                      grid[x+((3*BITWD)/4)][y+(IMHT/2)] = val;
-
-                  }
+                      grid[x+((3*BITWD)/4)][y+(IMHT/4)] = val;
+                   }
               }
               leds <: (iterations % 2);
+              if(split == 2) split = 1;
+              else {
+                  split = 2;
+              }
           } else if(signal1 == -2 && signal2 == -2 && signal3 == -2 && signal4 == -2) {
-          //Do work here..
               int ny,nx;
-              for(int y = -1; y < (IMHT/2)+1; y++)
+              int y;
+              if(split == 2)
+              {
+                  y = -1;
+                  for(int x = 0; x < BITWD; x++)
+                  {
+                      savedTop[x] = grid[x][0];
+                      savedMid[x] = grid[x][((IMHT)/2)-1];
+                  }
+                  yMax = ((IMHT/2)/2);
+              }
+              else
+              {
+                  y = (IMHT/2)-1;
+                  yMax = (IMHT/2)+(IMHT/4);
+              }
+              for(y; y < (yMax)+1; y++)
               {
                   for (int x = -1; x < (BITWD/4)+1; x++)
                   {
@@ -318,10 +358,17 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
                       nx=x;
                       ny=y;
                       if(ny == -1) ny=IMHT-1;
-                      if(nx == -1){nx=BITWD-1;}
-                      if(ny == IMHT) ny = 0;
+                      if(nx == -1) nx=BITWD-1;
                       if(nx == BITWD) nx = 0;
-                      val = grid[nx][ny];
+                      if(ny == IMHT)
+                      {
+                          val = savedTop[nx];
+                      } else if (ny == ((IMHT)/2)-1)
+                      {
+                          val = savedMid[nx];
+                      } else {
+                          val = grid[nx][ny];
+                      }
                       toWorker1 <: val;
 
                       //Worker2
@@ -329,9 +376,16 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
                       ny=y;
                       if(ny == -1) ny=IMHT-1;
                       if(nx == -1) nx=BITWD-1;
-                      if(ny == IMHT) ny = 0;
                       if(nx == BITWD) nx = 0;
-                      val = grid[nx][ny];
+                      if(ny == IMHT)
+                      {
+                          val = savedTop[nx];
+                      } else if (ny == ((IMHT)/2)-1)
+                      {
+                          val = savedMid[nx];
+                      } else {
+                          val = grid[nx][ny];
+                      }
                       toWorker2 <: val;
 
                       //Worker3
@@ -339,9 +393,16 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
                       ny=y;
                       if(ny == -1) ny=IMHT-1;
                       if(nx == -1) nx=BITWD-1;
-                      if(ny == IMHT) ny = 0;
                       if(nx == BITWD) nx = 0;
-                      val = grid[nx][ny];
+                      if(ny == IMHT)
+                      {
+                          val = savedTop[nx];
+                      } else if (ny == ((IMHT)/2)-1)
+                      {
+                          val = savedMid[nx];
+                      } else {
+                          val = grid[nx][ny];
+                      }
                       toWorker3 <: val;
 
                       //Worker4
@@ -349,49 +410,84 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
                       ny=y;
                       if(ny == -1) ny=IMHT-1;
                       if(nx == -1) nx=BITWD-1;
-                      if(ny == IMHT) ny = 0;
                       if(nx == BITWD) nx = 0;
-                      val = grid[nx][ny];
+                      if(ny == IMHT)
+                      {
+                          val = savedTop[nx];
+                      } else if (ny == ((IMHT)/2)-1)
+                      {
+                          val = savedMid[nx];
+                      } else {
+                          val = grid[nx][ny];
+                      }
                       toWorker4 <: val;
 
                       //Worker5
                       nx=x;
-                      ny=y+(IMHT/2);
+                      ny=y+(IMHT/4);
                       if(ny == -1) ny=IMHT-1;
                       if(nx == -1){nx=BITWD-1;}
-                      if(ny == IMHT) ny = 0;
                       if(nx == BITWD) nx = 0;
-                      val = grid[nx][ny];
+                      if(ny == IMHT)
+                      {
+                          val = savedTop[nx];
+                      } else if (ny == ((IMHT)/2)-1)
+                      {
+                          val = savedMid[nx];
+                      } else {
+                          val = grid[nx][ny];
+                      }
                       toWorker5 <: val;
 
                       //Worker6
                       nx=x+(BITWD/4);
-                      ny=y+(IMHT/2);
+                      ny=y+(IMHT/4);
                       if(ny == -1) ny=IMHT-1;
                       if(nx == -1) nx=BITWD-1;
-                      if(ny == IMHT) ny = 0;
                       if(nx == BITWD) nx = 0;
-                      val = grid[nx][ny];
+                      if(ny == IMHT)
+                      {
+                          val = savedTop[nx];
+                      } else if (ny == ((IMHT)/2)-1)
+                      {
+                          val = savedMid[nx];
+                      } else {
+                          val = grid[nx][ny];
+                      }
                       toWorker6 <: val;
 
                       //Worker7
                       nx=x+(BITWD/2);
-                      ny=y+(IMHT/2);
+                      ny=y+(IMHT/4);
                       if(ny == -1) ny=IMHT-1;
                       if(nx == -1) nx=BITWD-1;
-                      if(ny == IMHT) ny = 0;
                       if(nx == BITWD) nx = 0;
-                      val = grid[nx][ny];
+                      if(ny == IMHT)
+                      {
+                          val = savedTop[nx];
+                      } else if (ny == ((IMHT)/2)-1)
+                      {
+                          val = savedMid[nx];
+                      } else {
+                          val = grid[nx][ny];
+                      }
                       toWorker7 <: val;
 
                       //Worker8
                       nx=x+((3*BITWD)/4);
-                      ny=y+(IMHT/2);
+                      ny=y+(IMHT/4);
                       if(ny == -1) ny=IMHT-1;
                       if(nx == -1) nx=BITWD-1;
-                      if(ny == IMHT) ny = 0;
                       if(nx == BITWD) nx = 0;
-                      val = grid[nx][ny];
+                      if(ny == IMHT)
+                      {
+                          val = savedTop[nx];
+                      } else if (ny == ((IMHT)/2)-1)
+                      {
+                          val = savedMid[nx];
+                      } else {
+                          val = grid[nx][ny];
+                      }
                       toWorker8 <: val;
                   }
               }
@@ -403,10 +499,10 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
 
 void worker(chanend fromDist)
 {
-    int y_dimension = (IMHT/2)+2;
+    int y_dimension = ((IMHT/2)/2)+2;
     int x_dimension = (BITWD/4)+2;
-    unsigned int grid[(BITWD/4)+2][(IMHT/2)+2];
-    unsigned int newGrid[(BITWD/4)][(IMHT/2)];
+    unsigned int grid[(BITWD/4)+2][((IMHT/2)/2)+2];
+    unsigned int newGrid[(BITWD/4)][((IMHT/2)/2)];
     uchar val;
     while(1)
     {
@@ -458,7 +554,6 @@ void worker(chanend fromDist)
         fromDist <: signal;
         for(int y = 0; y < y_dimension-2; y++)
             {
-
                 for(int x = 0; x < x_dimension-2; x++)
                 {
                     val = newGrid[x][y];
@@ -620,8 +715,8 @@ int main(void) {
     on tile[0] : DataInStream(c_inIO);          //thread to read in a PGM image
     on tile[0] : DataOutStream(c_outIO);       //thread to write out a PGM image
     on tile[0] : distributor(c_inIO, c_outIO, c_control, buttonToDist, timerToDist, distToWorker1, distToWorker2, distToWorker3, distToWorker4, distToWorker5, distToWorker6, distToWorker7, distToWorker8);//thread to coordinate work on image
-    on tile[0] : worker(distToWorker1);
-    on tile[0] : worker(distToWorker2);
+    on tile[1] : worker(distToWorker1);
+    on tile[1] : worker(distToWorker2);
     on tile[1] : worker(distToWorker3);
     on tile[1] : worker(distToWorker4);
     on tile[1] : worker(distToWorker5);
