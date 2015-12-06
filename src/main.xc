@@ -1,5 +1,4 @@
-// COMS20001 - Cellular Automaton Farm - Initial Code Skeleton
-// (using the XMOS i2c accelerometer demo)
+// COMS20001 - Cellular Automaton Farm - Final Version Varadhan Kalidasan (vk14831), Jonathon Wingrove(jw14897).
 
 #include <platform.h>
 #include <xs1.h>
@@ -7,13 +6,13 @@
 #include "pgmIO.h"
 #include "i2c.h"
 
-#define  IMHT 1200                //image height
-#define  IMWD 1200               //image width
+#define  IMHT 128                //image height
+#define  IMWD 128               //image width
 #define  BITWD IMWD/16           //width in bytes
-#define  HT8   IMHT/8
+#define  HT8   IMHT/8            //offset between each workers start point
 
 typedef unsigned char uchar;      //using uchar as shorthand
-typedef unsigned short ushor;
+typedef unsigned short ushor;     //using ushor as shorthand
 
 on tile[0] : port p_scl = XS1_PORT_1E;         //interface ports to accelerometer
 on tile[0] : port p_sda = XS1_PORT_1F;
@@ -39,7 +38,7 @@ on tile[0] : out port leds = XS1_PORT_4F;   //port to access xCore-200 LEDs
 /////////////////////////////////////////////////////////////////////////////////////////
 void DataInStream(chanend c_out)
 {
-  char infname[] = "1200x1200.pgm";//put your input image path here
+  char infname[] = "128x128.pgm";//put your input image path here
   int res;
   uchar line[ IMWD ];
   printf( "DataInStream: Start...\n" );
@@ -56,9 +55,7 @@ void DataInStream(chanend c_out)
     _readinline( line, IMWD );
     for( int x = 0; x < IMWD; x++ ) {
       c_out <: line[ x ];
-      //printf( "-%4.1d ", line[ x ] ); //show image values
     }
-    //printf( "\n" );
   }
 
   //Close PGM image file
@@ -67,6 +64,12 @@ void DataInStream(chanend c_out)
   return;
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////
+//
+// Calculates the number of living neighbours a square has, given a grid, coordinates
+// and an 'a' offset, where 'a' is used to locate the specific bit
+//
+/////////////////////////////////////////////////////////////////////////////////////////
 int livingNeighbours(ushor grid[(BITWD)+2][3], int x, int y, int a)
 {
     int total = 0;
@@ -149,21 +152,17 @@ int livingNeighbours(ushor grid[(BITWD)+2][3], int x, int y, int a)
     bit = (val >> (15-a)) & 1;
     if (bit == 1) total++;
 
-    //printf("%d,%d,%d, %d\n",x,y,a, total);
     return total;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
 //
-// Start your implementation by changing this function to implement the game of life
-// by farming out parts of the image to worker threads who implement it...
-// Currently the function just inverts the image
+// Stores the image and distributes parts of the image to the workers.
+// Listens for both button presses and signals from the accelerometer in order to
+// trigger both pauses, and image outputs.
+// Recieves new images from the harvester, and replaces old image with new image.
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-
-
-
-
 void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButtons, chanend toTimer, chanend toWorker1, chanend toWorker2, chanend toWorker3, chanend toWorker4, chanend toWorker5, chanend toWorker6, chanend toWorker7, chanend toWorker8, chanend fromHarv)
 {
   ushor val;
@@ -172,47 +171,38 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
   int acc = 0;
   int button = 0;
   int iterations = 0;
-  ushor grid[BITWD][IMHT];
-  int living = 0;
+  ushor grid[BITWD][IMHT];         //Stored image
+  int living = 0;               //Living square count, used when paused
 
-  //Starting up and wait for tilting of the xCore-200 Explorer
   printf( "ProcessImage:Start, size = %dx%d\n", IMHT, IMWD );
   printf( "Waiting for Button Press...\n" );
-  //fromAcc :> int value;
 
-  while (button != 14)
+  while (button != 14)      //Waits for initial button press to start reading in file
   {
         fromButtons :> button;
   }
 
   leds <: 4;
-  //Read in and do something with your image values..
-  //This just inverts every pixel, but you should
-  //change the image according to the "Game of Life"
   printf( "Processing...\n" );
   for( int y = 0; y < IMHT; y++ ) {   //go through all lines
     for( int x = 0; x < BITWD; x++ ) { //go through each pixel per line
       int a = 0;
       ushor line = 0;
-      while(a != 16){
-          uchar in_out;
+      while(a != 16){               //Compresses each byte into a single bit of a unsigned short
+          uchar in_out;             //if the square is white, bit is set to 1, if black set to 0
           c_in :> in_out;
-          //printf("%d,%d, %d\n",x,y,val);
           if(in_out != 0){
               line |= 1 << (15-a);
-              //printf("%d, %d\n",a,line);
           }
           a++;
       }
       grid[x][y] = line;
     }
   }
-
-
   leds <: 0;
-
   printf( "\nFinished Reading File...\n" );
   toTimer <: 1;
+
   while(1)
   {
   select {
@@ -223,15 +213,12 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
               for( int y = 0; y < IMHT; y++ ) {   //go through all lines
                   for( int x = 0; x < BITWD; x++ ) { //go through each pixel per line
                       val = grid[x][y];
-                      //printf("%d\n",val);
                       int a = 0;
                       while(a != 16){
                           uchar colour = 0;
-                          int bit = (val >> (15-a)) & 1;
-                          //printf("%d,%d, %d\n",x,y,val);
+                          int bit = (val >> (15-a)) & 1;    //checks bit value, and sends uncompressed value to output
                           if(bit == 1){
                               colour = 255;
-                              //printf("%d, %d\n",a,line);
                           }
                           c_out <: colour;
                           a++;
@@ -246,16 +233,14 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
           printf("Paused..\n");
           leds <: 8;
           living = 0;
-          for (int y = 0; y < IMHT; y++) {
+          for (int y = 0; y < IMHT; y++) {          //iterates over every pixel of the image
               for (int x = 0; x < BITWD; x++) {
                   val = grid[x][y];
                   int a = 0;
                   while(a != 16){
-                      int bit = (val >> (15-a)) & 1;
-                      //printf("%d,%d, %d\n",x,y,val);
+                      int bit = (val >> (15-a)) & 1;        //checks bit value and counts number of living cells
                       if(bit != 0){
                           living++;
-                          //printf("%d, %d\n",a,line);
                       }
                       a++;
                   }
@@ -272,9 +257,8 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
           toTimer <: 0;
           leds <: 0;
           break;
-      case fromHarv :> harv:
-          //printf("%d\n",harv);
-          if(harv == -1){
+      case fromHarv :> harv:            //waits for signal from harvester
+          if(harv == -1){               //one iteration is complete, so new image is received from harvester
               iterations++;
               for(int y=0; y<IMHT; y++){
                   for(int x=0; x<BITWD; x++){
@@ -283,20 +267,19 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
                   }
               }
               leds <: (iterations % 2);
-          }else if(harv == -2){
-              int ny,nx;
-              //printf("iteration = %d line_number = %d\n",iterations, line_number);
+          }else if(harv == -2){                  //sends next line to each worker + an extra row and column on all sides
+              int ny,nx;                         //adds a different line offest for each worker
               for(int y = -1; y < 2; y++)
               {
                   for (int x = -1; x < BITWD+1; x++)
                   {
                       nx=x;
-                      if(nx == -1){nx=BITWD-1;}
+                      if(nx == -1){nx=BITWD-1;}         //checks edge cases
                       if(nx == BITWD) nx = 0;
 
                       //Worker1
                       ny=y+line_number;
-                      if(ny == -1) ny=IMHT-1;
+                      if(ny == -1) ny=IMHT-1;           //checks edge cases
                       val = grid[nx][ny];
                       toWorker1 <: val;
 
@@ -332,31 +315,34 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
 
                       //Worker8
                       ny=y+line_number+(HT8*7);
-                      if(ny == IMHT) ny = 0;
+                      if(ny == IMHT) ny = 0;             //checks edge cases
                       val = grid[nx][ny];
                       toWorker8 <: val;
                   }
               }
               line_number ++;
-              if(line_number == HT8){
+              if(line_number == HT8){                   //resets line_number counter after one full iteration
                   line_number = 0;
               }
 
           }
-
-          //printf("%d\n",line_number);
           break;
           }
       }
  }
 
-
+/////////////////////////////////////////////////////////////////////////////////////////
+//
+// Receives processed lines from workers and stores them in new image, after a complete
+// iteration, the new image is sent back to the distributor.
+//
+/////////////////////////////////////////////////////////////////////////////////////////
 void harvester(chanend fromWorker1, chanend fromWorker2, chanend fromWorker3, chanend fromWorker4, chanend fromWorker5, chanend fromWorker6, chanend fromWorker7, chanend fromWorker8, chanend toDist){
     uchar line_number = 0;
-    ushor newgrid[BITWD][IMHT];
-    int sig;
+    ushor newgrid[BITWD][IMHT];         //new image
+    int sig;                            //used to tell the distributor to either send more lines to the workers, receive new image from here
     ushor val;
-    int signal1;
+    int signal1;                        //signals used to synchronise workers
     int signal2;
     int signal3;
     int signal4;
@@ -381,7 +367,7 @@ void harvester(chanend fromWorker1, chanend fromWorker2, chanend fromWorker3, ch
                 }
                 if(signal1 == -1 && signal2 == -1 && signal3 == -1 && signal4 == -1 && signal5 == -1 && signal6 == -1 && signal7 == -1 && signal8 == -1)
                 {
-                    for (int x = 0; x < BITWD; x++)
+                    for (int x = 0; x < BITWD; x++)             //copies processed lines to new image
                     {
                         fromWorker1 :> val;
                         newgrid[x][line_number] = val;
@@ -402,7 +388,7 @@ void harvester(chanend fromWorker1, chanend fromWorker2, chanend fromWorker3, ch
                         newgrid[x][line_number+(HT8*7)] = val;
                     }
                     line_number++;
-                    if(line_number == HT8){
+                    if(line_number == HT8){                 //sends new image to distributor if one iteration is complete
                         sig = -1;
                         toDist <: sig;
                         line_number = 0;
@@ -421,56 +407,50 @@ void harvester(chanend fromWorker1, chanend fromWorker2, chanend fromWorker3, ch
 
 void worker(chanend fromDist, chanend toHarv)
 {
-    int y_dimension = 3;
-    int x_dimension = BITWD+2;
+    int y_dimension = 3;                //y dimension of grid section
+    int x_dimension = BITWD+2;          //x dimension of grid section
     int signal;
-    ushor grid[BITWD+2][3];
-    ushor newGrid[(BITWD)][1];
+    ushor grid[BITWD+2][3];             //unprocessed grid
+    ushor newGrid[(BITWD)][1];          //processed grid
     ushor val;
     while(1)
     {
         signal = -2;
         toHarv <: signal;
-        for(int y = 0; y < y_dimension; y++)
+        for(int y = 0; y < y_dimension; y++)        //receives image from distributor
         {
             for(int x = 0; x < x_dimension; x++)
             {
                 fromDist :> val;
                 grid[x][y] = val;
-                //printf("%d\n", val);
             }
         }
-        for (int x = 1; x < x_dimension-1; x++)
+        for (int x = 1; x < x_dimension-1; x++)         //calculates whether each square will live or die, based on number of neighbours
         {
             val = grid[x][1];
             int a = 0;
             ushor line = 0;
             while(a != 16){
                 int bit = (val >> (15-a)) & 1;
-                //printf("%d,%d, %d\n",x,y,val);
                 int lNeighbours = livingNeighbours(grid, x, 1, a);
                 if(bit == 0){
-                //printf("%d, %d\n",a, lNeighbours);
                     if(lNeighbours == 3)
                     {
                         line |= 1 << (15-a);
                     }
-                //printf("%d, %d\n",a,line);
                 }
                 else{
                     if(lNeighbours == 2 || lNeighbours == 3){
                         line |= 1 << (15-a);
-                        //printf("%d, %d\n",y, line);
                     }
                 }
                 a++;
              }
-             newGrid[x-1][0] = line;
-             //printf("%d, %d, %d\n",x-1,y-1, line);
+             newGrid[x-1][0] = line;                     //copies processed coordinates into new grid
         }
         signal = -1;
         toHarv <: signal;
-        for(int x = 0; x < x_dimension-2; x++)
+        for(int x = 0; x < x_dimension-2; x++)          //sends processed line to the harvester
         {
             val = newGrid[x][0];
             toHarv <: val;
