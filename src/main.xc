@@ -7,12 +7,13 @@
 #include "pgmIO.h"
 #include "i2c.h"
 
-#define  IMHT 640                //image height
-#define  IMWD 640               //image width
-#define  BITWD IMWD/8           //width in bytes
+#define  IMHT 1200                //image height
+#define  IMWD 1200               //image width
+#define  BITWD IMWD/16           //width in bytes
 #define  HT8   IMHT/8
 
 typedef unsigned char uchar;      //using uchar as shorthand
+typedef unsigned short ushor;
 
 on tile[0] : port p_scl = XS1_PORT_1E;         //interface ports to accelerometer
 on tile[0] : port p_sda = XS1_PORT_1F;
@@ -38,7 +39,7 @@ on tile[0] : out port leds = XS1_PORT_4F;   //port to access xCore-200 LEDs
 /////////////////////////////////////////////////////////////////////////////////////////
 void DataInStream(chanend c_out)
 {
-  char infname[] = "640x640.pgm";//put your input image path here
+  char infname[] = "1200x1200.pgm";//put your input image path here
   int res;
   uchar line[ IMWD ];
   printf( "DataInStream: Start...\n" );
@@ -66,10 +67,10 @@ void DataInStream(chanend c_out)
   return;
 }
 
-int livingNeighbours(unsigned int grid[(BITWD)+2][3], int x, int y, int a)
+int livingNeighbours(ushor grid[(BITWD)+2][3], int x, int y, int a)
 {
     int total = 0;
-    int val;
+    ushor val;
     int bit;
     if(a ==0){
         val = grid[(x-1)][(y-1)];
@@ -84,17 +85,17 @@ int livingNeighbours(unsigned int grid[(BITWD)+2][3], int x, int y, int a)
 
 
         val = grid[(x)][(y-1)];
-        bit = (val >> (6)) & 1;
+        bit = (val >> (14)) & 1;
         if (bit == 1) total++;
         val = grid[(x)][y];
-        bit = (val >> (6)) & 1;
+        bit = (val >> (14)) & 1;
         if (bit == 1) total++;
         val = grid[(x)][(y+1)];
-        bit = (val >> (6)) & 1;
+        bit = (val >> (14)) & 1;
         if (bit == 1) total++;
 
         }
-    else if(a ==7){
+    else if(a ==15){
         val = grid[(x)][(y-1)];
         bit = (val >> (1)) & 1;
         if (bit == 1) total++;
@@ -107,45 +108,45 @@ int livingNeighbours(unsigned int grid[(BITWD)+2][3], int x, int y, int a)
 
 
         val = grid[(x+1)][(y-1)];
-        bit = (val >> (7)) & 1;
+        bit = (val >> (15)) & 1;
         if (bit == 1) total++;
         val = grid[(x+1)][y];
-        bit = (val >> (7)) & 1;
+        bit = (val >> (15)) & 1;
         if (bit == 1) total++;
         val = grid[(x+1)][(y+1)];
-        bit = (val >> (7)) & 1;
+        bit = (val >> (15)) & 1;
         if (bit == 1) total++;
 
         }
     else{
         val = grid[(x)][(y-1)];
-        bit = (val >> ((7-a)+1)) & 1;
+        bit = (val >> ((15-a)+1)) & 1;
         if (bit == 1) total++;
         val = grid[(x)][y];
-        bit = (val >> ((7-a)+1)) & 1;
+        bit = (val >> ((15-a)+1)) & 1;
         if (bit == 1) total++;
         val = grid[(x)][(y+1)];
-        bit = (val >> ((7-a)+1)) & 1;
+        bit = (val >> ((15-a)+1)) & 1;
         if (bit == 1) total++;
 
 
         val = grid[(x)][(y-1)];
-        bit = (val >> ((7-a)-1)) & 1;
+        bit = (val >> ((15-a)-1)) & 1;
         if (bit == 1) total++;
         val = grid[(x)][y];
-        bit = (val >> ((7-a)-1)) & 1;
+        bit = (val >> ((15-a)-1)) & 1;
         if (bit == 1) total++;
         val = grid[(x)][(y+1)];
-        bit = (val >> ((7-a)-1)) & 1;
+        bit = (val >> ((15-a)-1)) & 1;
         if (bit == 1) total++;
 
         }
 
     val = grid[x][(y+1)];
-    bit = (val >> (7-a)) & 1;
+    bit = (val >> (15-a)) & 1;
     if (bit == 1) total++;
     val = grid[x][(y-1)];
-    bit = (val >> (7-a)) & 1;
+    bit = (val >> (15-a)) & 1;
     if (bit == 1) total++;
 
     //printf("%d,%d,%d, %d\n",x,y,a, total);
@@ -165,13 +166,13 @@ int livingNeighbours(unsigned int grid[(BITWD)+2][3], int x, int y, int a)
 
 void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButtons, chanend toTimer, chanend toWorker1, chanend toWorker2, chanend toWorker3, chanend toWorker4, chanend toWorker5, chanend toWorker6, chanend toWorker7, chanend toWorker8, chanend fromHarv)
 {
-  uchar val;
+  ushor val;
   uchar line_number = 0;
   int harv = 0;
   int acc = 0;
   int button = 0;
   int iterations = 0;
-  unsigned int grid[BITWD][IMHT];
+  ushor grid[BITWD][IMHT];
   int living = 0;
 
   //Starting up and wait for tilting of the xCore-200 Explorer
@@ -192,12 +193,13 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
   for( int y = 0; y < IMHT; y++ ) {   //go through all lines
     for( int x = 0; x < BITWD; x++ ) { //go through each pixel per line
       int a = 0;
-      uchar line = 0;
-      while(a != 8){
-          c_in :> val;
+      ushor line = 0;
+      while(a != 16){
+          uchar in_out;
+          c_in :> in_out;
           //printf("%d,%d, %d\n",x,y,val);
-          if(val != 0){
-              line |= 1 << (7-a);
+          if(in_out != 0){
+              line |= 1 << (15-a);
               //printf("%d, %d\n",a,line);
           }
           a++;
@@ -223,9 +225,9 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
                       val = grid[x][y];
                       //printf("%d\n",val);
                       int a = 0;
-                      while(a != 8){
+                      while(a != 16){
                           uchar colour = 0;
-                          int bit = (val >> (7-a)) & 1;
+                          int bit = (val >> (15-a)) & 1;
                           //printf("%d,%d, %d\n",x,y,val);
                           if(bit == 1){
                               colour = 255;
@@ -248,8 +250,8 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
               for (int x = 0; x < BITWD; x++) {
                   val = grid[x][y];
                   int a = 0;
-                  while(a != 8){
-                      int bit = (val >> (7-a)) & 1;
+                  while(a != 16){
+                      int bit = (val >> (15-a)) & 1;
                       //printf("%d,%d, %d\n",x,y,val);
                       if(bit != 0){
                           living++;
@@ -350,10 +352,10 @@ void distributor(chanend c_in, chanend c_out, chanend fromAcc, chanend fromButto
 
 
 void harvester(chanend fromWorker1, chanend fromWorker2, chanend fromWorker3, chanend fromWorker4, chanend fromWorker5, chanend fromWorker6, chanend fromWorker7, chanend fromWorker8, chanend toDist){
-    int line_number = 0;
-    unsigned int newgrid[BITWD][IMHT];
+    uchar line_number = 0;
+    ushor newgrid[BITWD][IMHT];
     int sig;
-    uchar val;
+    ushor val;
     int signal1;
     int signal2;
     int signal3;
@@ -421,12 +423,13 @@ void worker(chanend fromDist, chanend toHarv)
 {
     int y_dimension = 3;
     int x_dimension = BITWD+2;
-    unsigned int grid[BITWD+2][3];
-    unsigned int newGrid[(BITWD)][1];
-    uchar val;
+    int signal;
+    ushor grid[BITWD+2][3];
+    ushor newGrid[(BITWD)][1];
+    ushor val;
     while(1)
     {
-        int signal = -2;
+        signal = -2;
         toHarv <: signal;
         for(int y = 0; y < y_dimension; y++)
         {
@@ -441,22 +444,22 @@ void worker(chanend fromDist, chanend toHarv)
         {
             val = grid[x][1];
             int a = 0;
-            uchar line = 0;
-            while(a != 8){
-                int bit = (val >> (7-a)) & 1;
+            ushor line = 0;
+            while(a != 16){
+                int bit = (val >> (15-a)) & 1;
                 //printf("%d,%d, %d\n",x,y,val);
                 int lNeighbours = livingNeighbours(grid, x, 1, a);
                 if(bit == 0){
                 //printf("%d, %d\n",a, lNeighbours);
                     if(lNeighbours == 3)
                     {
-                        line |= 1 << (7-a);
+                        line |= 1 << (15-a);
                     }
                 //printf("%d, %d\n",a,line);
                 }
                 else{
                     if(lNeighbours == 2 || lNeighbours == 3){
-                        line |= 1 << (7-a);
+                        line |= 1 << (15-a);
                         //printf("%d, %d\n",y, line);
                     }
                 }
